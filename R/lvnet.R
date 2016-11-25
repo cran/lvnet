@@ -43,7 +43,7 @@ lvnet <- function(
   fitInd,
   fitSat,
   startValues=list(), # Named list of starting values. CAN ALSO BE lvnet OBJECT!
-  scale = TRUE, # Standardize cov to cor before estimation
+  scale = FALSE, # Standardize cov to cor before estimation
   nLatents, # allows for quick specification of fully populated lambda matrix.
   
   # Experimental!!!
@@ -51,13 +51,15 @@ lvnet <- function(
   lassoMatrix, # Vector of character-string of matrices to apply LASSO penalty on
   # optimizer = c("default","SLSQP","NPSOL","CSOLNP")
   lassoTol = 1e-4,
-  ebicTuning = 0.5
+  ebicTuning = 0.5,
+  mimic = c("lavaan","lvnet")
   
   # Optimizer:
   # nCores = 1
 ){
   
   Nvar <- ncol(data)
+  mimic <- match.arg(mimic)
   
   # Check args:
   if (!missing(lambda) & !missing(nLatents)){
@@ -190,7 +192,8 @@ lvnet <- function(
     lasso = lasso,
     lassoMatrix=lassoMatrix,
     scale=scale,
-    nLatents=nLatents)
+    nLatents=nLatents,
+    mimic=mimic)
   
   
   #   capture.output(fitMod <- OpenMx::mxRun(mod, silent = TRUE,
@@ -206,9 +209,9 @@ lvnet <- function(
       psi = matrix(NA,Nvar,Nvar), 
       theta = matrix(0, Nvar,Nvar), 
       name = "saturated",
-      sampleSize = sampleSize
+      sampleSize = sampleSize,
+      mimic=mimic
     )
-    
     
     capture.output(fitSat <- mxRun(satMod, silent = TRUE,
                                    suppressWarnings = TRUE)  ,type="message")
@@ -222,7 +225,8 @@ lvnet <- function(
       psi = diag(NA, Nvar, Nvar), 
       theta = matrix(0, Nvar, Nvar), 
       name = "independence",
-      sampleSize = sampleSize
+      sampleSize = sampleSize,
+      mimic=mimic
     )
     
     capture.output(fitInd <- mxRun(indMod, silent = TRUE,
@@ -272,13 +276,21 @@ lvnet <- function(
 #     Results$fitMeasures$npar <- summary(fitMod)$estimatedParameters
 #     Results$fitMeasures$df <- summary(fitMod)$degreesOfFreedom  
 #   }
+    
+    #  Ncons = samplesize constant. Set to N if mimic = lavaan:
+    if (mimic == "lavaan"){
+      Ncons <- sampleSize
+    } else {
+      Ncons <- sampleSize - 1
+    }
+
   Results$fitMeasures$fmin <- (sum(diag(S %*% corpcor::pseudoinverse(sigma)))- log(det(S %*% corpcor::pseudoinverse(sigma))) - Nvar)/2
-  Results$fitMeasures$chisq <- 2 * (sampleSize - 1) * Results$fitMeasures$fmin
+  Results$fitMeasures$chisq <- 2 * Ncons * Results$fitMeasures$fmin
   Results$fitMeasures$pvalue <- pchisq(Results$fitMeasures$chisq, Results$fitMeasures$df, lower.tail = FALSE)
   
   # Baseline model:
   sigmaBase <- fitInd$algebras$sigma$result
-  Results$fitMeasures$baseline.chisq <- (sampleSize - 1) * (sum(diag(S %*% corpcor::pseudoinverse(sigmaBase)))- log(det(S %*% corpcor::pseudoinverse(sigmaBase))) - Nvar)
+  Results$fitMeasures$baseline.chisq <- Ncons * (sum(diag(S %*% corpcor::pseudoinverse(sigmaBase)))- log(det(S %*% corpcor::pseudoinverse(sigmaBase))) - Nvar)
   Results$fitMeasures$baseline.df <- countPars(fitInd)$DF
   Results$fitMeasures$baseline.pvalue <- pchisq(Results$fitMeasures$baseline.chisq, Results$fitMeasures$baseline.df, lower.tail = FALSE)
   
@@ -297,7 +309,7 @@ lvnet <- function(
   Results$fitMeasures$cfi <- ifelse(dfm > Tm, 1, 1 - (Tm - dfm)/(Tb - dfb))
   
   # RMSEA
-  Results$fitMeasures$rmsea <- sqrt( max(Tm - dfm,0) / ((sampleSize - 1) * dfm))
+  Results$fitMeasures$rmsea <- sqrt( max(Tm - dfm,0) / (Ncons * dfm))
   
   # Codes for rmsea confidence interval taken from lavaan:
   lower.lambda <- function(lambda) {
@@ -355,7 +367,6 @@ lvnet <- function(
   
   
   # information criteria:
-  
   # Saturated log-likelihood:
   c <- sampleSize*Nvar/2 * log(2 * pi)
   satLL <- ( -c -(sampleSize/2) * log(det(S)) - (sampleSize/2)*Nvar )

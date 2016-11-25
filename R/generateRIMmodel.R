@@ -22,9 +22,12 @@ generatelvnetmodel <- function(
   startValues = list(),
   lasso = 0,
   lassoMatrix = "",
-  scale = TRUE,
-  nLatents # allows for quick specification of fully populated lambda matrix.
+  scale = FALSE,
+  nLatents, # allows for quick specification of fully populated lambda matrix.
+  mimic = c("lvnet","lavaan")
   ){
+  
+  mimic <- match.arg(mimic)
   
   # Silly things to fool R check:
   I_lat <- NULL
@@ -37,6 +40,7 @@ generatelvnetmodel <- function(
   sigma_positive <- NULL
   P <- NULL
   penalty <- NULL
+  sigma <- NULL
   
   # Check for input:
   stopifnot(is.matrix(data)|is.data.frame(data))
@@ -201,7 +205,7 @@ generatelvnetmodel <- function(
     #     )
     
     data <- as.matrix(data)
-    covMat <- cov(data, use = "pairwise.complete.obs")* (sampleSize - 1)/sampleSize
+    covMat <- cov(data, use = "pairwise.complete.obs") # * (sampleSize - 1)/sampleSize
   }
   
   if (scale){
@@ -210,6 +214,11 @@ generatelvnetmodel <- function(
     if (lasso != 0){
       warning("It is advised to set 'scale = TRUE' when using LASSO estimation.")
     }
+  }
+  
+  # Scale to divide by N:
+  if (mimic == "lavaan"){
+    covMat <- covMat * (sampleSize - 1)/sampleSize
   }
   
   # 
@@ -247,7 +256,7 @@ generatelvnetmodel <- function(
       nrow = nrow(beta),
       ncol = ncol(beta),
       free = is.na(beta),
-      values = start("beta",startValues,0),
+      values = start("beta",startValues,ifelse(is.na(beta),0,beta)),
       name = "beta"
     )
   } else {
@@ -292,7 +301,6 @@ generatelvnetmodel <- function(
       lbound <- -ubound
       diag(lbound) <- 0
       
-
       Mx_psi <- OpenMx::mxMatrix(
         type = "Symm",
         nrow = nrow(psi),
@@ -346,7 +354,7 @@ generatelvnetmodel <- function(
         nrow = nrow(omega_psi),
         ncol = ncol(omega_psi),
         free = is.na(omega_psi),
-        values = start("omega_psi",startValues,0),
+        values = start("omega_psi",startValues,ifelse(is.na(omega_psi),0,omega_psi)),
         lbound = ifelse(diag(nrow(omega_psi)) == 1,0, -0.99),
         ubound = ifelse(diag(nrow(omega_psi)) == 1,0, 0.99),
         name = "omega_psi",

@@ -1,4 +1,5 @@
 # Exports:
+export(lav2lvnet)
 export(EBIClvglasso)
 export(lvglasso)
 export(lassoSelect)
@@ -39,11 +40,13 @@ importFrom(OpenMx,"mxFitFunctionML")
 importFrom(OpenMx,"mxAlgebra")
 importFrom(OpenMx,"mxRun")
 importFrom(qgraph,"EBICglasso")
+importFrom(lavaan,"lavaanify")
+importFrom(semPlot,"modelMatrices")
 import(parallel)
 
   importFrom("graphics", "par", "plot")
   importFrom("methods", "is")
   importFrom("stats", "C", "anova", "cov", "loadings", "pchisq",
-             "promax", "residuals", "sigma", "uniroot")
+             "promax", "residuals", "uniroot")
   importFrom("utils", "capture.output", "setTxtProgressBar",
              "txtProgressBar")
