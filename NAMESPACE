@@ -1,4 +1,5 @@
 # Exports:
+export(lvnetRefit)
 export(lav2lvnet)
 export(EBIClvglasso)
 export(lvglasso)
@@ -43,6 +44,10 @@ importFrom(qgraph,"EBICglasso")
 importFrom(lavaan,"lavaanify")
 importFrom(semPlot,"modelMatrices")
 import(parallel)
+
+# ggmFit:
+importFrom(qgraph,"ggmFit")
+export(ggmFit)
 
   importFrom("graphics", "par", "plot")
   importFrom("methods", "is")
