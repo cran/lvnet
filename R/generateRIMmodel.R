@@ -6,6 +6,27 @@ start <- function(mat,list,alt){
   }
 }
 
+# toFree: function to take input and return NA whenever NA or character:
+toFree <- function(x){
+  suppressWarnings(mode(x) <- "numeric")
+  x
+}
+isFree <- function(x) is.na(toFree(x))
+# to label, convert to equality constraints:
+toLabel <- function(x, mat, symmetric=FALSE){
+  isNA <- is.na(x)
+  free <- toFree(x)
+  suppressWarnings(mode(x) <- "character")
+  inds <- which(isNA | !is.na(free),arr.ind=TRUE)
+  x[isNA | !is.na(free)] <- paste0(mat,"_",inds[,1],"_",inds[,2])
+  if (symmetric){
+    x[lower.tri(x)] <- t(x)[lower.tri(x)]
+  }
+  # x[isNA | !is.na(free)]  <- NA
+  return(x)
+}
+
+
 # Model matrices should contain NA for free elements and a value for fixed elements.
 generatelvnetmodel <- function(
   data, # Raw data or a covariance matrix
@@ -20,14 +41,25 @@ generatelvnetmodel <- function(
   sampleSize,
   name = "mod",
   startValues = list(),
+  parLabels = list(),
   lasso = 0,
   lassoMatrix = "",
   scale = FALSE,
   nLatents, # allows for quick specification of fully populated lambda matrix.
-  mimic = c("lvnet","lavaan")
+  mimic = c("lvnet","lavaan"),
+  fitFunction = c("default","ML","penalizedML")
   ){
   
   mimic <- match.arg(mimic)
+  
+  fitFunction <- match.arg(fitFunction)
+  if (fitFunction=="default"){
+    fitFunction <- ifelse(lasso == 0, "ML", "penalizedML")
+  }
+  
+  if (lasso != 0 && fitFunction != "penalizedML"){
+    stop("fitFunction must be 'penalizedML' when lasso != 0")
+  }
   
   # Silly things to fool R check:
   I_lat <- NULL
@@ -41,6 +73,7 @@ generatelvnetmodel <- function(
   P <- NULL
   penalty <- NULL
   sigma <- NULL
+  # Lambda <- NULL
   
   # Check for input:
   stopifnot(is.matrix(data)|is.data.frame(data))
@@ -231,13 +264,13 @@ generatelvnetmodel <- function(
   ### lvnet AND SEM ###
   # Lambda:
   if (Nlat > 0){
-
     Mx_lambda <- OpenMx::mxMatrix(
       type = "Full",
       nrow = nrow(lambda),
       ncol = ncol(lambda),
-      free = is.na(lambda),
-      values = start("lambda",startValues,ifelse(is.na(lambda),1,lambda)),
+      free = isFree(lambda),
+      labels = toLabel(lambda,"lambda"),
+      values = start("lambda",startValues,ifelse(isFree(lambda),1,toFree(lambda))),
       name = "lambda"
     )
   } else {
@@ -251,12 +284,13 @@ generatelvnetmodel <- function(
   
   # Beta:
   if (Nlat > 0){
+
     Mx_beta <- OpenMx::mxMatrix(
       type = "Full",
       nrow = nrow(beta),
       ncol = ncol(beta),
-      free = is.na(beta),
-      values = start("beta",startValues,ifelse(is.na(beta),0,beta)),
+      free = isFree(beta),labels=toLabel(beta,"beta"),
+      values = start("beta",startValues,ifelse(isFree(beta),0,toFree(beta))),
       name = "beta"
     )
   } else {
@@ -285,7 +319,6 @@ generatelvnetmodel <- function(
   )
   
   
-  
   # Psi and omega_psi:
   if (estPsi){
     if (Nlat > 0){
@@ -305,8 +338,8 @@ generatelvnetmodel <- function(
         type = "Symm",
         nrow = nrow(psi),
         ncol = ncol(psi),
-        free = is.na(psi),
-        values = start("psi",startValues,ifelse(is.na(psi),diag(ncol(psi)),psi)),
+        free = isFree(psi),labels=toLabel(psi,"psi",TRUE),
+        values = start("psi",startValues,ifelse(isFree(psi),diag(ncol(psi)),toFree(psi))),
         lbound = lbound,
         ubound = ubound,
         name = "psi"
@@ -341,8 +374,8 @@ generatelvnetmodel <- function(
       type = "Diag",
       nrow = nrow(delta_psi),
       ncol = ncol(delta_psi),
-      free = is.na(delta_psi),
-      values = start("delta_psi",startValues,ifelse(is.na(delta_psi),1,delta_psi)),
+      free = isFree(delta_psi),labels=toLabel(delta_psi,"delta_psi",TRUE),
+      values = start("delta_psi",startValues,ifelse(isFree(delta_psi),1,toFree(delta_psi))),
       lbound = 0,
       name = "delta_psi"
     )
@@ -353,8 +386,8 @@ generatelvnetmodel <- function(
         type = "Symm",
         nrow = nrow(omega_psi),
         ncol = ncol(omega_psi),
-        free = is.na(omega_psi),
-        values = start("omega_psi",startValues,ifelse(is.na(omega_psi),0,omega_psi)),
+        free = isFree(omega_psi),labels=toLabel(omega_psi,"omega_psi",TRUE),
+        values = start("omega_psi",startValues,ifelse(isFree(omega_psi),0,toFree(omega_psi))),
         lbound = ifelse(diag(nrow(omega_psi)) == 1,0, -0.99),
         ubound = ifelse(diag(nrow(omega_psi)) == 1,0, 0.99),
         name = "omega_psi",
@@ -423,8 +456,8 @@ generatelvnetmodel <- function(
       type = "Symm",
       nrow = nrow(theta),
       ncol = ncol(theta),
-      free = is.na(theta),
-      values = start("theta",startValues,ifelse(is.na(theta),diag(nrow(theta)),theta)),
+      free = isFree(theta),labels=toLabel(theta,"theta",TRUE),
+      values = start("theta",startValues,ifelse(isFree(theta),diag(nrow(theta)),toFree(theta))),
       name = "theta"
     )
     
@@ -466,6 +499,10 @@ generatelvnetmodel <- function(
       ubound = Inf,
       name = "theta_inverse"
     )
+    
+    if (is.character(omega_theta)){
+      stop("Equality constraints in residual network not yet supported.")
+    }
     
     Mx_delta_theta <- OpenMx::mxAlgebra(
       vec2diag(1/sqrt(diag2vec(theta_inverse))),
@@ -611,7 +648,7 @@ generatelvnetmodel <- function(
     
     # Positive definite shifted sigma:
     Mx_Sigma_positive <- OpenMx::mxAlgebra(
-      sigma - min(0,(min(eigenval(sigma))-.00001)) * I_obs, name = "sigma_positive"
+      sigma - min(0,(min(eigenval(sigma))-.00001)) * I_obs, name = "sigma_positive", dimnames = dimnames(covMat)
     )
     
     # Tuning parameter:
@@ -649,11 +686,29 @@ generatelvnetmodel <- function(
     # logLik <- OpenMx::mxAlgebra(log(det(sigma)) + tr(C %*% solve(sigma)) - log(det(C)) - P + penalty,name = "logLik")
     
     # logLik <- OpenMx::mxAlgebra(log(det(sigma)) + tr(C %*% solve(sigma)) - log(det(C)) - P,name = "logLik")
-    logLik <- OpenMx::mxAlgebra(log(det(sigma_positive)) + tr(C %*% solve(sigma_positive)) - log(det(C)) - P + penalty,name = "logLik")
-    
     
     # Fit function:
-    fitFunction <- OpenMx::mxFitFunctionAlgebra("logLik", numObs = sampleSize, numStats = ncol(covMat)*(ncol(covMat)+1)/2)
+    if (fitFunction == "ML"){
+      #     expFunction <- OpenMx::mxExpectationNormal(covariance = "sigma")
+      #     
+      #     # Fit function:
+      #     fitFunction <- OpenMx::mxFitFunctionML()
+      
+      # Normal ML estimation
+      logLik <- OpenMx::mxExpectationNormal(covariance = "sigma_positive")
+      
+      # Fit function:
+      fitFunction <- OpenMx::mxFitFunctionML()
+      
+    } else {
+      # Penalized ML
+      logLik <- OpenMx::mxAlgebra(log(det(sigma_positive)) + tr(C %*% solve(sigma_positive)) - log(det(C)) - P + penalty,name = "logLik")
+      
+      # Fit function:
+      fitFunction <- OpenMx::mxFitFunctionAlgebra("logLik", numObs = sampleSize, numStats = ncol(covMat)*(ncol(covMat)+1)/2)      
+    }
+    
+
   
     if (Nlat > 0){
       Mx_sigma <- OpenMx::mxAlgebra(
